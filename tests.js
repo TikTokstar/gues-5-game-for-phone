@@ -69,6 +69,32 @@ function runTests(report) {
     report(line, ok);
   }
   report("", true);
+
+  /* Проверка на самите въпроси: всеки text и всеки accept трябва да отваря
+     своето поле, а не друго. Хваща сблъсъци при добавяне на нови въпроси. */
+  var checked = 0;
+  for (var q = 0; q < QUESTIONS.length; q++) {
+    var question = QUESTIONS[q];
+    for (var a = 0; a < question.answers.length; a++) {
+      var variants = [question.answers[a].text].concat(question.answers[a].accept || []);
+      for (var v = 0; v < variants.length; v++) {
+        var got = matchAnswer(variants[v], question.answers);
+        checked++;
+        if (got !== a) {
+          failed++;
+          report("ГРЕШКА ниво " + question.id + ': "' + variants[v] + '" (поле ' +
+            (a + 1) + ") отваря поле " + (got + 1), false);
+        }
+      }
+    }
+    if (question.answers.length !== 5) {
+      failed++;
+      report("ГРЕШКА ниво " + question.id + ": " + question.answers.length + " отговора вместо 5", false);
+    }
+  }
+  report("Проверени отговора в " + QUESTIONS.length + " нива: " + checked, true);
+  report("", true);
+
   report("Общо: " + TEST_CASES.length + ", успешни: " + passed + ", неуспешни: " + failed, failed === 0);
   return { passed: passed, failed: failed, total: TEST_CASES.length };
 }
