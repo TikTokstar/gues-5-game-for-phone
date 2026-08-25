@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Познай 5</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="screen-home" class="screen">
+  <div class="home-colors">
+    <span class="sq color-purple"></span>
+    <span class="sq color-red"></span>
+    <span class="sq color-yellow"></span>
+    <span class="sq color-blue"></span>
+    <span class="sq color-green"></span>
+  </div>
+  <hr class="rule">
+  <h1 class="logo">
+    <span class="l1">П</span><span class="l2">О</span><span class="l3">З</span><span class="l4">Н</span><span class="l5">А</span><span class="l6">Й</span>
+  </h1>
+  <button id="btn-play" class="play-circle" type="button">5</button>
+  <div class="home-icons">
+    <button id="btn-sound" class="icon-btn" type="button" aria-label="Звук">♪</button>
+    <button id="btn-levels" class="icon-btn" type="button" aria-label="Нива">▦</button>
+    <button id="btn-reset" class="icon-btn" type="button" aria-label="Нулирай">⟲</button>
+  </div>
+</section>
+
+<section id="screen-levels" class="screen" hidden>
+  <header class="topbar">
+    <button id="levels-back" class="top-btn" type="button" aria-label="Назад">‹</button>
+    <span id="levels-title" class="top-title">0/5</span>
+    <span class="coins"><span class="coin"></span><span class="js-coins">0</span></span>
+  </header>
+  <h2 class="screen-title">Избери ниво</h2>
+  <hr class="rule">
+  <div id="level-grid" class="grid"></div>
+</section>
+
+<section id="screen-game" class="screen" hidden>
+  <header class="topbar">
+    <button id="game-back" class="top-btn" type="button" aria-label="Назад">‹</button>
+    <span id="game-title" class="top-title">1</span>
+    <span class="coins"><span class="coin"></span><span class="js-coins">0</span></span>
+  </header>
+  <p id="question" class="question"></p>
+  <form id="guess-form" class="guess-row" autocomplete="off">
+    <input id="guess" class="guess-input" type="text" autocomplete="off" autocorrect="off"
+           autocapitalize="off" spellcheck="false" enterkeyhint="go">
+    <button class="guess-send" type="submit" aria-label="Изпрати">→</button>
+  </form>
+  <hr class="rule">
+  <ul id="answers" class="answers"></ul>
+  <button id="btn-reveal" class="reveal-btn" type="button">Отвори отговор · 40</button>
+</section>
+
+<div id="overlay" class="overlay" hidden>
+  <div class="overlay-card">
+    <h2 id="overlay-title"></h2>
+    <p id="overlay-text"></p>
+    <button id="overlay-next" class="overlay-btn" type="button"></button>
+  </div>
+</div>
+
+<script src="questions.js"></script>
+<script src="match.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
