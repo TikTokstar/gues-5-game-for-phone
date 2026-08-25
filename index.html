@@ -4,60 +4,89 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Познай 5</title>
+<link rel="stylesheet" href="fonts/comfortaa.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<section id="screen-home" class="screen">
-  <div class="home-colors">
-    <span class="sq color-purple"></span>
-    <span class="sq color-red"></span>
-    <span class="sq color-yellow"></span>
-    <span class="sq color-blue"></span>
-    <span class="sq color-green"></span>
+<svg class="defs" aria-hidden="true">
+  <defs>
+    <g id="i-back"><path d="M16.5 4 6.5 12l10 8" fill="none" stroke="currentColor" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-share">
+      <circle cx="18" cy="5.5" r="2.9" fill="currentColor"/>
+      <circle cx="5.6" cy="12" r="2.9" fill="currentColor"/>
+      <circle cx="18" cy="18.5" r="2.9" fill="currentColor"/>
+      <path d="M8.2 10.6 15.4 6.9M8.2 13.4 15.4 17.1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+    <g id="i-check"><path d="M4 13.5 9.5 19 20 5.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-arrow"><path d="M3 12h30m-11-9 11 9-11 9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="i-note"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18.5" r="3.2" fill="currentColor"/><circle cx="17" cy="16.5" r="3.2" fill="currentColor"/></g>
+    <g id="i-grid"><rect x="3" y="3" width="8" height="8" rx="2.4" fill="currentColor"/><rect x="13" y="3" width="8" height="8" rx="2.4" fill="currentColor"/><rect x="3" y="13" width="8" height="8" rx="2.4" fill="currentColor"/><rect x="13" y="13" width="8" height="8" rx="2.4" fill="currentColor"/></g>
+    <g id="i-reset"><path d="M20 12a8 8 0 1 1-2.6-5.9M20 3v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g>
+  </defs>
+</svg>
+
+<section id="screen-home" class="screen home">
+  <div class="sp sp-1"></div>
+  <div class="home-squares">
+    <span class="sq c-purple"></span><span class="sq c-red"></span><span class="sq c-yellow"></span><span class="sq c-blue"></span><span class="sq c-green"></span>
   </div>
-  <hr class="rule">
-  <h1 class="logo">
-    <span class="l1">П</span><span class="l2">О</span><span class="l3">З</span><span class="l4">Н</span><span class="l5">А</span><span class="l6">Й</span>
-  </h1>
-  <button id="btn-play" class="play-circle" type="button">5</button>
+  <div class="sp sp-2"></div>
+  <div class="rule"></div>
+  <div class="sp sp-3"></div>
+  <h1 class="logo"><span>П</span><span>О</span><span>З</span><span>Н</span><span>А</span><span>Й</span></h1>
+  <div class="sp sp-4"></div>
+  <button id="btn-play" class="play" type="button" aria-label="Играй">5</button>
+  <div class="sp sp-5"></div>
   <div class="home-icons">
-    <button id="btn-sound" class="icon-btn" type="button" aria-label="Звук">♪</button>
-    <button id="btn-levels" class="icon-btn" type="button" aria-label="Нива">▦</button>
-    <button id="btn-reset" class="icon-btn" type="button" aria-label="Нулирай">⟲</button>
+    <button id="btn-sound" class="icon-btn" type="button" aria-label="Звук"><svg viewBox="0 0 24 24"><use href="#i-note"/></svg></button>
+    <button id="btn-levels" class="icon-btn" type="button" aria-label="Нива"><svg viewBox="0 0 24 24"><use href="#i-grid"/></svg></button>
+    <button id="btn-reset" class="icon-btn" type="button" aria-label="Нулирай прогреса"><svg viewBox="0 0 24 24"><use href="#i-reset"/></svg></button>
   </div>
+  <div class="sp sp-6"></div>
 </section>
 
-<section id="screen-levels" class="screen" hidden>
+<section id="screen-levels" class="screen c-purple" hidden>
   <header class="topbar">
-    <button id="levels-back" class="top-btn" type="button" aria-label="Назад">‹</button>
+    <button id="levels-back" class="top-btn" type="button" aria-label="Назад"><svg viewBox="0 0 24 24"><use href="#i-back"/></svg></button>
+    <button class="top-btn js-share" type="button" aria-label="Сподели"><svg viewBox="0 0 24 24"><use href="#i-share"/></svg></button>
     <span id="levels-title" class="top-title">0/5</span>
-    <span class="coins"><span class="coin"></span><span class="js-coins">0</span></span>
+    <span class="coins"><span class="coin"></span><span class="js-coins">0</span><span class="plus">+</span></span>
   </header>
   <h2 class="screen-title">Избери ниво</h2>
-  <hr class="rule">
-  <div id="level-grid" class="grid"></div>
+  <div class="rule"></div>
+  <div class="levels-scroll"><div id="level-grid" class="grid"></div></div>
 </section>
 
-<section id="screen-game" class="screen" hidden>
+<section id="screen-game" class="screen c-purple" hidden>
   <header class="topbar">
-    <button id="game-back" class="top-btn" type="button" aria-label="Назад">‹</button>
+    <button id="game-back" class="top-btn" type="button" aria-label="Назад"><svg viewBox="0 0 24 24"><use href="#i-back"/></svg></button>
+    <button class="top-btn js-share" type="button" aria-label="Сподели"><svg viewBox="0 0 24 24"><use href="#i-share"/></svg></button>
     <span id="game-title" class="top-title">1</span>
-    <span class="coins"><span class="coin"></span><span class="js-coins">0</span></span>
+    <span class="coins"><span class="coin"></span><span class="js-coins">0</span><span class="plus">+</span></span>
   </header>
-  <p id="question" class="question"></p>
-  <form id="guess-form" class="guess-row" autocomplete="off">
-    <input id="guess" class="guess-input" type="text" autocomplete="off" autocorrect="off"
-           autocapitalize="off" spellcheck="false" enterkeyhint="go">
-    <button class="guess-send" type="submit" aria-label="Изпрати">→</button>
-  </form>
-  <hr class="rule">
-  <ul id="answers" class="answers"></ul>
-  <button id="btn-reveal" class="reveal-btn" type="button">Отвори отговор · 40</button>
+  <div class="game-top">
+    <p id="question" class="question"></p>
+    <form id="guess-form" class="guess-row" autocomplete="off">
+      <input id="guess" class="guess-input" type="text" autocomplete="off" autocorrect="off"
+             autocapitalize="off" spellcheck="false" enterkeyhint="go" maxlength="40">
+      <button class="guess-send" type="submit" aria-label="Изпрати"><svg viewBox="0 0 40 24"><use href="#i-arrow"/></svg></button>
+    </form>
+    <div class="rule"></div>
+  </div>
+  <div class="game-body">
+    <ul id="answers" class="answers"></ul>
+    <button id="btn-reveal" class="reveal-btn" type="button">
+      <span>Отвори отговор</span><span class="coin"></span><span>40</span>
+    </button>
+  </div>
 </section>
 
-<div id="overlay" class="overlay" hidden>
+<div id="overlay" class="overlay c-purple" hidden>
   <div class="overlay-card">
     <h2 id="overlay-title"></h2>
     <p id="overlay-text"></p>

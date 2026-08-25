@@ -188,7 +188,8 @@
     ["home", "levels", "game"].forEach(function (id) {
       els["screen-" + id].hidden = id !== name;
     });
-    if (name === "levels") renderLevels();
+    if (name === "levels") { setTheme("purple"); renderLevels(); }
+    if (name === "home") setTheme(null);
     if (name === "game") renderGame();
     renderCoins();
   }
@@ -203,6 +204,15 @@
     return ["green", "purple", "red", "yellow", "blue"][levelNumber % 5];
   }
 
+  var THEME_TINT = {
+    purple: "#e7d9f0", red: "#fbd9d7", yellow: "#fef1cd", blue: "#d9e6fd", green: "#d6eddc"
+  };
+
+  function setTheme(color) {
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", color ? THEME_TINT[color] : "#ffffff");
+  }
+
   function renderLevels() {
     els["levels-title"].textContent = state.progress + "/" + QUESTIONS.length;
     var grid = els["level-grid"];
@@ -210,10 +220,14 @@
     for (var i = 0; i < QUESTIONS.length; i++) {
       var number = i + 1;
       var btn = document.createElement("button");
-      btn.className = "level-cell color-" + levelColor(number);
+      btn.className = "level-cell c-" + levelColor(number);
       btn.textContent = String(number);
       btn.dataset.level = String(i);
-      if (i < state.progress) btn.classList.add("is-done");
+      if (i < state.progress) {
+        btn.classList.add("is-done");
+        btn.insertAdjacentHTML("beforeend",
+          '<svg class="tick" viewBox="0 0 24 24"><use href="#i-check"/></svg>');
+      }
       if (i > state.progress) { btn.classList.add("is-locked"); btn.disabled = true; }
       grid.appendChild(btn);
     }
@@ -235,12 +249,37 @@
     return { text: out, open: false };
   }
 
+  /* Въпросът стои на един ред, както на снимките, и се смалява ако не се събира. */
+  function unit() {
+    return Math.min(window.innerWidth, 480) / 393;
+  }
+
+  function fitQuestion() {
+    var el = els["question"];
+    var u = unit();
+    var size = 23 * u;
+    el.style.whiteSpace = "nowrap";
+    el.style.fontSize = size + "px";
+    while (size > 16 * u && el.scrollWidth > el.clientWidth) {
+      size -= 0.5 * u;
+      el.style.fontSize = size + "px";
+    }
+    if (el.scrollWidth > el.clientWidth) {
+      el.style.whiteSpace = "normal";
+      el.style.fontSize = (20 * u) + "px";
+    }
+  }
+
   function renderGame() {
     var q = currentQuestion();
     var number = state.level + 1;
-    document.body.dataset.color = levelColor(number);
+    var color = levelColor(number);
+    els["screen-game"].className = "screen c-" + color;
+    els["overlay"].className = "overlay c-" + color;
+    setTheme(color);
     els["game-title"].textContent = String(number);
     els["question"].textContent = q.question;
+    fitQuestion();
     var list = els["answers"];
     list.innerHTML = "";
     for (var i = 0; i < 5; i++) {
@@ -251,6 +290,7 @@
       btn.dataset.index = String(i);
       btn.textContent = view.text;
       if (view.open) btn.classList.add("is-open");
+      else if (view.text) btn.classList.add("is-hint");
       li.appendChild(btn);
       list.appendChild(li);
     }
@@ -415,24 +455,49 @@
       save();
       screen("game");
     });
+    var shareBtns = document.querySelectorAll(".js-share");
+    for (var s2 = 0; s2 < shareBtns.length; s2++) {
+      shareBtns[s2].addEventListener("click", onShare);
+    }
     document.getElementById("guess-form").addEventListener("submit", onSubmit);
     els["answers"].addEventListener("click", onAnswerClick);
     els["btn-reveal"].addEventListener("click", onReveal);
     els["overlay-next"].addEventListener("click", onOverlayNext);
   }
 
+  function onShare() {
+    var data = { title: "Познай 5", text: "Играй Познай 5", url: location.href };
+    if (navigator.share) {
+      navigator.share(data).catch(function () { /* отказано */ });
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(location.href).catch(function () { /* без клипборд */ });
+    }
+  }
+
   function renderSound() {
     document.getElementById("btn-sound").classList.toggle("is-off", !state.sound);
+  }
+
+  function onResize() {
+    if (!els["screen-game"].hidden) fitQuestion();
   }
 
   function init() {
     state = load();
     bind();
     renderSound();
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
     screen("home");
   }
 
   document.addEventListener("DOMContentLoaded", init);
+
+  if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () { /* без офлайн */ });
+    });
+  }
 
   /* за тестове от конзолата */
   window.POZNAY = {
