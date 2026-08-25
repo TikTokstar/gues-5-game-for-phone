@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Познай 5 — тестове</title>
+<style>
+  body { font: 15px/1.5 monospace; margin: 12px; background: #fff; color: #222; }
+  h1 { font-size: 18px; }
+  .ok { color: #1a7f37; }
+  .fail { color: #d02020; font-weight: bold; }
+  pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+</style>
+</head>
+<body>
+<h1>Познай 5 — тестове на matchAnswer</h1>
+<pre id="out"></pre>
+<script src="questions.js"></script>
+<script src="match.js"></script>
+<script src="tests.js"></script>
+<script>
+  var out = document.getElementById("out");
+  runTests(function (line, ok) {
+    console.log(line);
+    var div = document.createElement("div");
+    div.className = ok ? "ok" : "fail";
+    div.textContent = line;
+    out.appendChild(div);
+  });
+</script>
+</body>
+</html>
