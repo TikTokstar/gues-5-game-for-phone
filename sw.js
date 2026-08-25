@@ -1,5 +1,5 @@
 /* Познай 5 — офлайн след първото зареждане. */
-var CACHE = "poznay5-v1";
+var CACHE = "poznay5-v2";
 var FILES = [
   "./",
   "./index.html",
@@ -7,7 +7,13 @@ var FILES = [
   "./fonts/comfortaa.css",
   "./questions.js",
   "./match.js",
-  "./game.js"
+  "./game.js",
+  "./manifest.json",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-maskable-512.png",
+  "./icons/icon-180.png",
+  "./icons/favicon-64.png"
 ];
 
 self.addEventListener("install", function (event) {
