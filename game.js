@@ -4,6 +4,8 @@
   "use strict";
 
   var STORAGE_KEY = "poznay5";
+  var SAVE_VERSION = 2;      /* смяната на версията изчиства стария запис */
+  var FREE_LEVELS = 5;       /* първите пет нива са отключени от начало */
   var START_COINS = 50;
   var LEVEL_REWARD = 20;
   var LETTER_COST = 10;
@@ -17,7 +19,20 @@
   /* ---------- запазване ---------- */
 
   function defaultState() {
-    return { level: 0, progress: 0, coins: START_COINS, sound: true, levels: {} };
+    return { v: SAVE_VERSION, level: 0, progress: 0, done: {}, coins: START_COINS,
+             sound: true, levels: {} };
+  }
+
+  function isUnlocked(index) {
+    return index < FREE_LEVELS || index <= state.progress;
+  }
+
+  function doneCount() {
+    var n = 0;
+    for (var key in state.done) {
+      if (Object.prototype.hasOwnProperty.call(state.done, key)) n++;
+    }
+    return n;
   }
 
   function load() {
@@ -27,12 +42,14 @@
     var saved;
     try { saved = JSON.parse(raw); } catch (e) { return defaultState(); }
     if (!saved || typeof saved !== "object") return defaultState();
+    if (saved.v !== SAVE_VERSION) return defaultState();
     var s = defaultState();
     if (typeof saved.level === "number") s.level = saved.level;
     if (typeof saved.progress === "number") s.progress = saved.progress;
     if (typeof saved.coins === "number") s.coins = saved.coins;
     if (typeof saved.sound === "boolean") s.sound = saved.sound;
     if (saved.levels && typeof saved.levels === "object") s.levels = saved.levels;
+    if (saved.done && typeof saved.done === "object") s.done = saved.done;
     s.progress = Math.max(0, Math.min(s.progress, QUESTIONS.length));
     s.level = Math.max(0, Math.min(s.level, QUESTIONS.length - 1));
     return s;
@@ -141,11 +158,12 @@
 
   function completeLevel() {
     var reward = 0;
-    if (state.level >= state.progress) {
-      state.progress = state.level + 1;
+    if (!state.done[state.level]) {
+      state.done[state.level] = 1;
       reward = LEVEL_REWARD;
       state.coins += reward;
     }
+    if (state.level + 1 > state.progress) state.progress = state.level + 1;
     save();
     return reward;
   }
@@ -214,7 +232,7 @@
   }
 
   function renderLevels() {
-    els["levels-title"].textContent = state.progress + "/" + QUESTIONS.length;
+    els["levels-title"].textContent = doneCount() + "/" + QUESTIONS.length;
     var grid = els["level-grid"];
     grid.innerHTML = "";
     for (var i = 0; i < QUESTIONS.length; i++) {
@@ -223,12 +241,12 @@
       btn.className = "level-cell c-" + levelColor(number);
       btn.textContent = String(number);
       btn.dataset.level = String(i);
-      if (i < state.progress) {
+      if (state.done[i]) {
         btn.classList.add("is-done");
         btn.insertAdjacentHTML("beforeend",
           '<svg class="tick" viewBox="0 0 24 24"><use href="#i-check"/></svg>');
       }
-      if (i > state.progress) { btn.classList.add("is-locked"); btn.disabled = true; }
+      if (!isUnlocked(i)) { btn.classList.add("is-locked"); btn.disabled = true; }
       grid.appendChild(btn);
     }
   }
