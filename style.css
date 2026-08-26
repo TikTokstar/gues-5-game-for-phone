@@ -132,6 +132,8 @@ button { border: 0; background: none; padding: 0; cursor: pointer; }
   padding: 0 calc(14 * var(--u));
   font-size: calc(23 * var(--u));
   font-weight: 700;
+  /* Comfortaa свършва на 700, затова малко контур за по-плътни букви */
+  -webkit-text-stroke: 0.4px currentColor;
   line-height: 1.18;
   text-align: center;
 }
