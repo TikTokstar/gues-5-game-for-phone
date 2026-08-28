@@ -6,6 +6,8 @@
   var STORAGE_KEY = "poznay5";
   var SAVE_VERSION = 2;      /* смяната на версията изчиства стария запис */
   var FREE_LEVELS = 5;       /* първите пет нива са отключени от начало */
+  var BLOCK = 5;             /* по колко нива се отключват наведнъж */
+  var PER_BLOCK = 4;         /* колко завършени нива отварят следващата група */
   var START_COINS = 50;
   var LEVEL_REWARD = 20;
   var LETTER_COST = 10;
@@ -23,8 +25,28 @@
              sound: true, levels: {} };
   }
 
+  /* Нивата се отключват на групи: всеки PER_BLOCK завършени нива отварят
+     още BLOCK. Групата дава едно ниво повече, отколкото е нужно за следващата,
+     така че винаги остава по нещо друго за игра и не може да се заклещиш. */
+  function unlockedCount() {
+    var groups = Math.floor(doneCount() / PER_BLOCK);
+    return Math.min(QUESTIONS.length, FREE_LEVELS + groups * BLOCK);
+  }
+
   function isUnlocked(index) {
-    return index < FREE_LEVELS || index <= state.progress;
+    return index < unlockedCount();
+  }
+
+  /* следващото отключено ниво, което още не е завършено */
+  function nextPlayable(from) {
+    var i;
+    for (i = from + 1; i < QUESTIONS.length; i++) {
+      if (isUnlocked(i) && !state.done[i]) return i;
+    }
+    for (i = 0; i <= from && i < QUESTIONS.length; i++) {
+      if (isUnlocked(i) && !state.done[i]) return i;
+    }
+    return -1;
   }
 
   function doneCount() {
@@ -163,7 +185,7 @@
       reward = LEVEL_REWARD;
       state.coins += reward;
     }
-    if (state.level + 1 > state.progress) state.progress = state.level + 1;
+    if (state.level + 1 > state.progress) state.progress = state.level + 1;   /* само за справка */
     save();
     return reward;
   }
@@ -332,8 +354,7 @@
     setTimeout(function () { btn.classList.remove(cls); }, 600);
   }
 
-  function showOverlay(kind, reward) {
-    var last = state.level >= QUESTIONS.length - 1;
+  function showOverlay(kind, reward, opened) {
     els["overlay"].hidden = false;
     els["overlay"].dataset.kind = kind;
     if (kind === "end") {
@@ -341,13 +362,16 @@
       els["overlay-text"].textContent = "Изигра всички " + QUESTIONS.length + " нива.";
       els["overlay-next"].textContent = "Нулирай прогреса";
       els["overlay-next"].dataset.action = "reset";
-    } else {
-      els["overlay-title"].textContent = "Ниво завършено!";
-      els["overlay-text"].textContent = reward ? "+" + reward + " монети" : "";
-      els["overlay-next"].textContent = "Следващо ниво";
-      els["overlay-next"].dataset.action = "next";
+      return;
     }
-    return last;
+    var parts = [];
+    if (reward) parts.push("+" + reward + " монети");
+    if (opened > 0) parts.push(opened === 1 ? "1 ново ниво" : opened + " нови нива");
+    els["overlay-title"].textContent = "Ниво завършено!";
+    els["overlay-text"].textContent = parts.join(" · ");
+    var next = nextPlayable(state.level);
+    els["overlay-next"].textContent = next === -1 ? "Към нивата" : "Следващо ниво";
+    els["overlay-next"].dataset.action = next === -1 ? "levels" : "next";
   }
 
   function hideOverlay() {
@@ -356,12 +380,14 @@
 
   function afterOpen() {
     if (!isLevelDone(state.level)) return;
-    var last = state.level >= QUESTIONS.length - 1;
+    var before = unlockedCount();
     var reward = completeLevel();
+    var opened = unlockedCount() - before;
+    var everything = doneCount() >= QUESTIONS.length;
     renderCoins();
     setTimeout(function () {
       soundLevel();
-      showOverlay(last ? "end" : "level", reward);
+      showOverlay(everything ? "end" : "level", reward, opened);
     }, 500);
   }
 
@@ -429,7 +455,12 @@
       screen("home");
       return;
     }
-    state.level = Math.min(state.level + 1, QUESTIONS.length - 1);
+    var next = nextPlayable(state.level);
+    if (next === -1) {
+      screen("levels");
+      return;
+    }
+    state.level = next;
     save();
     screen("game");
     els["guess"].focus();
