@@ -8,6 +8,11 @@
   var FREE_LEVELS = 5;       /* първите пет нива са отключени от начало */
   var BLOCK = 5;             /* по колко нива се отключват наведнъж */
   var PER_BLOCK = 4;         /* колко завършени нива отварят следващата група */
+  /* Еднократно признаване на минати нива: нивата до GRANT_LEVELS се отбелязват
+     като завършени, ако вече не са. Само добавя - нищо от записа не се губи.
+     Прилага се веднъж; за ново признаване се вдига GRANT_ID. */
+  var GRANT_LEVELS = 86;
+  var GRANT_ID = 1;
   var START_COINS = 50;
   var LEVEL_REWARD = 20;
   var LETTER_COST = 10;
@@ -21,8 +26,8 @@
   /* ---------- запазване ---------- */
 
   function defaultState() {
-    return { v: SAVE_VERSION, level: 0, progress: 0, done: {}, coins: START_COINS,
-             sound: true, levels: {} };
+    return { v: SAVE_VERSION, level: 0, progress: 0, done: {}, grant: 0,
+             coins: START_COINS, sound: true, levels: {} };
   }
 
   /* Нивата се отключват на групи: всеки PER_BLOCK завършени нива отварят
@@ -72,9 +77,24 @@
     if (typeof saved.sound === "boolean") s.sound = saved.sound;
     if (saved.levels && typeof saved.levels === "object") s.levels = saved.levels;
     if (saved.done && typeof saved.done === "object") s.done = saved.done;
+    if (typeof saved.grant === "number") s.grant = saved.grant;
     s.progress = Math.max(0, Math.min(s.progress, QUESTIONS.length));
     s.level = Math.max(0, Math.min(s.level, QUESTIONS.length - 1));
     return s;
+  }
+
+  /* Отбелязва нивата до GRANT_LEVELS като минати, без да пипа останалото.
+     Монети не се дават - те вече са получени при истинското минаване. */
+  function applyGrant() {
+    if (state.grant === GRANT_ID) return 0;
+    var limit = Math.min(GRANT_LEVELS, QUESTIONS.length);
+    var added = 0;
+    for (var i = 0; i < limit; i++) {
+      if (!state.done[i]) { state.done[i] = 1; added++; }
+    }
+    state.grant = GRANT_ID;
+    save();
+    return added;
   }
 
   function save() {
@@ -83,6 +103,7 @@
 
   function resetAll() {
     state = defaultState();
+    state.grant = GRANT_ID;   /* нарочното нулиране не се отменя от признаването */
     save();
   }
 
@@ -533,6 +554,7 @@
 
   function init() {
     state = load();
+    applyGrant();
     bind();
     renderSound();
     window.addEventListener("resize", onResize);
@@ -555,6 +577,7 @@
     buyLetter: buyLetter,
     buyAnswer: buyAnswer,
     resetAll: function () { resetAll(); screen("home"); },
+    applyGrant: applyGrant,
     screen: screen
   };
 })();
