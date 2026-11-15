@@ -9,10 +9,27 @@ import {
   UserOfflineError,
   SignatureRateLimitError,
 } from 'tiktok-live-connector';
+import { HttpProxyAgent, HttpsProxyAgent } from 'hpagent';
 
 // Optional: an Euler Stream API key raises the free signing rate limits.
 // Not needed for normal use.
 const SIGN_API_KEY = process.env.SIGN_API_KEY || undefined;
+
+// Optional: route TikTok traffic through an HTTP(S) proxy (TTS_PROXY, or the
+// usual HTTPS_PROXY). The TikTok library ignores proxy settings unless told.
+const PROXY = process.env.TTS_PROXY || process.env.HTTPS_PROXY || process.env.https_proxy || '';
+function proxyOptions() {
+  if (!PROXY) return {};
+  return {
+    webClientOptions: {
+      agent: {
+        http: new HttpProxyAgent({ proxy: PROXY, keepAlive: true }),
+        https: new HttpsProxyAgent({ proxy: PROXY, keepAlive: true }),
+      },
+    },
+    wsClientOptions: { agent: new HttpsProxyAgent({ proxy: PROXY, keepAlive: true }) },
+  };
+}
 
 function userOf(data) {
   const u = data?.user || {};
@@ -49,6 +66,7 @@ export class TikTokSource extends EventEmitter {
       // Don't replay old chat from before we connected, or it would all be read out at once.
       processInitialData: false,
       signApiKey: SIGN_API_KEY,
+      ...proxyOptions(),
     });
     this.conn = conn;
     const send = (ev) => this.emit('event', ev);

@@ -15,6 +15,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "hpagent": "^1.2.0",
     "tiktok-live-connector": "^2.5.0",
     "ws": "^8.18.0"
   }
