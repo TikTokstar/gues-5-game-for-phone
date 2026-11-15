@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f0f14">
+  <title>TikTok LIVE TTS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23fe2c55'/%3E%3Cpath d='M18 26h8l10-8v28l-10-8h-8z' fill='white'/%3E%3Cpath d='M42 24a10 10 0 0 1 0 16' stroke='white' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #0f0f14;
+      --card: #1a1a22;
+      --card-2: #23232d;
+      --line: #2e2e3a;
+      --text: #f2f2f5;
+      --muted: #a0a0ad;
+      --pink: #fe2c55;
+      --cyan: #25f4ee;
+      --green: #3ddc84;
+      --amber: #ffb547;
+      --red: #ff5a5a;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: max(12px, env(safe-area-inset-top)) 16px 40px;
+      max-width: 760px; margin: 0 auto;
+    }
+    header { display: flex; align-items: center; gap: 10px; margin: 6px 0 14px; flex-wrap: wrap; }
+    header h1 { font-size: 20px; margin: 0; flex: 1; letter-spacing: .2px; white-space: nowrap; }
+    header h1 b { color: var(--pink); }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px;
+      background: var(--card-2); color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap;
+    }
+    .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .pill[data-state="live"] { color: var(--green); }
+    .pill[data-state="live"] .dot { animation: pulse 1.6s infinite; }
+    .pill[data-state="connecting"], .pill[data-state="reconnecting"], .pill[data-state="server"] { color: var(--amber); }
+    .pill[data-state="offline"] { color: var(--cyan); }
+    .pill[data-state="error"], .pill[data-state="invalid"] { color: var(--red); }
+    @keyframes pulse { 50% { opacity: .3; } }
+    #viewers { display: none; }
+    #viewers.show { display: inline-flex; }
+
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .grow { flex: 1; min-width: 0; }
+    .at {
+      display: flex; align-items: center; flex: 1; min-width: 180px; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 10px; padding: 0 12px;
+    }
+    .at:focus-within { border-color: var(--cyan); }
+    .at span { color: var(--muted); font-weight: 700; font-size: 18px; }
+    .at input { border: 0; background: transparent; outline: none; color: var(--text); font-size: 18px; padding: 12px 6px; width: 100%; }
+    button {
+      font: inherit; font-weight: 650; border: 0; border-radius: 10px; padding: 11px 16px; cursor: pointer;
+      background: var(--card-2); color: var(--text); touch-action: manipulation;
+    }
+    button:hover { filter: brightness(1.15); }
+    button:disabled { opacity: .45; cursor: default; filter: none; }
+    button.primary { background: var(--pink); color: #fff; font-size: 16px; padding: 12px 22px; }
+    button.primary.stop { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--pink); }
+    button.small { padding: 8px 12px; font-size: 14px; }
+    .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+    .msg { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
+    .msg:empty { display: none; }
+    .msg.err { color: var(--red); }
+
+    #controls { display: none; }
+    body.running #controls { display: block; }
+    .bg-status { font-size: 13px; color: var(--muted); margin-top: 10px; display: flex; gap: 6px; align-items: flex-start; }
+    .bg-status.ok { color: var(--green); }
+    .bg-status.warn { color: var(--amber); }
+    .queue { color: var(--muted); font-size: 13px; margin-left: auto; }
+
+    #feed { list-style: none; margin: 0; padding: 0; max-height: 46vh; overflow-y: auto; }
+    #feed li {
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 2px; border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+    #feed li:last-child { border-bottom: 0; }
+    #feed .who { font-weight: 700; color: var(--cyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #feed .what { grid-column: 1 / -1; overflow-wrap: anywhere; }
+    #feed .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); align-self: center; }
+    #feed .tag.speaking { color: var(--pink); }
+    #feed .tag.read { color: var(--green); }
+    #feed .tag.queued { color: var(--amber); }
+    #feed li.ev-gift .who { color: var(--amber); }
+    #feed li.ev-follow .who, #feed li.ev-share .who { color: var(--green); }
+    #feed li.sys .what { color: var(--muted); font-style: italic; }
+    .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 18px 0; }
+
+    details { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+    summary { padding: 14px; cursor: pointer; font-weight: 700; list-style: none; display: flex; justify-content: space-between; }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "+"; color: var(--muted); font-weight: 400; }
+    details[open] summary::after { content: "−"; }
+    .fields { padding: 0 14px 14px; display: grid; gap: 12px; }
+    label.f { display: grid; gap: 5px; font-size: 14px; color: var(--muted); }
+    label.f > span { display: flex; justify-content: space-between; }
+    label.f output { color: var(--text); font-variant-numeric: tabular-nums; }
+    label.c { display: flex; gap: 10px; align-items: center; font-size: 15px; cursor: pointer; }
+    label.c input { width: 20px; height: 20px; accent-color: var(--pink); flex: none; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    @media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
+    select, input[type="text"], input[type="number"], textarea {
+      font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+      padding: 9px 10px; width: 100%;
+    }
+    textarea { min-height: 64px; resize: vertical; }
+    input[type="range"] { width: 100%; accent-color: var(--pink); }
+    .note { font-size: 13px; color: var(--muted); margin: 0; }
+    footer { color: var(--muted); font-size: 13px; margin-top: 20px; }
+    footer li { margin-bottom: 4px; }
+    code { background: var(--card-2); padding: 1px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TikTok <b>LIVE</b> TTS</h1>
+    <span class="pill" id="viewers" title="Viewers">👁 <span id="viewerCount">0</span></span>
+    <span class="pill" id="status" data-state="idle"><span class="dot"></span><span id="statusText">Not running</span></span>
+  </header>
+
+  <section class="card">
+    <form id="startForm" class="row" autocomplete="off">
+      <label class="at" for="username"><span>@</span>
+        <input id="username" name="username" placeholder="your TikTok username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="60" required>
+      </label>
+      <button type="submit" class="primary" id="startBtn">Start</button>
+    </form>
+    <p class="hint" id="startHint">Type your TikTok @ and press Start. Your chat will be read out loud while you're LIVE.</p>
+    <p class="msg" id="statusMsg"></p>
+  </section>
+
+  <section class="card" id="controls">
+    <div class="row">
+      <button type="button" class="small" id="pauseBtn">⏸ Pause reading</button>
+      <button type="button" class="small" id="skipBtn">⏭ Skip</button>
+      <button type="button" class="small" id="clearBtn">Clear queue</button>
+      <span class="queue">In queue: <b id="queueLen">0</b></span>
+    </div>
+    <div class="bg-status" id="bgStatus"></div>
+  </section>
+
+  <section class="card">
+    <ul id="feed"></ul>
+    <div class="empty" id="feedEmpty">Chat will show up here.</div>
+  </section>
+
+  <details id="voiceSection" open>
+    <summary>Voice</summary>
+    <div class="fields">
+      <label class="f"><span>Voice</span><select id="voice" data-setting="voiceURI"></select></label>
+      <p class="note" id="voiceNote"></p>
+      <div class="two">
+        <label class="f"><span>Speed <output data-for="rate"></output></span><input type="range" min="0.5" max="2" step="0.05" data-setting="rate"></label>
+        <label class="f"><span>Pitch <output data-for="pitch"></output></span><input type="range" min="0" max="2" step="0.05" data-setting="pitch"></label>
+        <label class="f"><span>Volume <output data-for="volume"></output></span><input type="range" min="0" max="1" step="0.05" data-setting="volume"></label>
+      </div>
+      <div class="row">
+        <input type="text" id="testText" class="grow" value="Hello! This is how your chat will sound.">
+        <button type="button" class="small" id="testBtn">▶ Test</button>
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>What to read</summary>
+    <div class="fields">
+      <div class="two">
+        <label class="c"><input type="checkbox" data-setting="readChat"> Chat messages</label>
+        <label class="c"><input type="checkbox" data-setting="readGifts"> Gifts</label>
+        <label class="c"><input type="checkbox" data-setting="readFollows"> New follows</label>
+        <label class="c"><input type="checkbox" data-setting="readShares"> Shares</label>
+        <label class="c"><input type="checkbox" data-setting="readJoins"> People joining</label>
+        <label class="c"><input type="checkbox" data-setting="readLikes"> Likes</label>
+      </div>
+      <label class="f"><span>Who can make it talk (chat)</span>
+        <select data-setting="who">
+          <option value="all">Everyone</option>
+          <option value="followers">Followers, subscribers &amp; mods</option>
+          <option value="subs">Subscribers &amp; mods</option>
+          <option value="mods">Mods only</option>
+        </select>
+      </label>
+      <label class="c"><input type="checkbox" data-setting="sayNames"> Say who wrote the message</label>
+      <label class="f"><span>Name to say</span>
+        <select data-setting="nameSource">
+          <option value="nickname">Display name</option>
+          <option value="username">@username</option>
+        </select>
+      </label>
+      <label class="f"><span>Chat format</span><input type="text" data-setting="chatTemplate"></label>
+      <label class="f"><span>Gift format</span><input type="text" data-setting="giftTemplate"></label>
+      <label class="f"><span>Follow format</span><input type="text" data-setting="followTemplate"></label>
+      <label class="f"><span>Share format</span><input type="text" data-setting="shareTemplate"></label>
+      <label class="f"><span>Join format</span><input type="text" data-setting="joinTemplate"></label>
+      <label class="f"><span>Like format</span><input type="text" data-setting="likeTemplate"></label>
+      <p class="note">Use <code>{name}</code>, <code>{text}</code>, <code>{gift}</code> and <code>{count}</code>.</p>
+      <label class="f"><span>Only read gifts worth at least (coins)</span><input type="number" min="0" step="1" data-setting="minGiftCoins"></label>
+    </div>
+  </details>
+
+  <details>
+    <summary>Filters &amp; spam</summary>
+    <div class="fields">
+      <div class="two">
+        <label class="c"><input type="checkbox" data-setting="skipLinks"> Don't read links</label>
+        <label class="c"><input type="checkbox" data-setting="stripEmojis"> Don't read emojis</label>
+        <label class="c"><input type="checkbox" data-setting="collapseRepeats"> Shorten "loooool" spam</label>
+        <label class="c"><input type="checkbox" data-setting="skipCommands"> Skip !commands</label>
+        <label class="c"><input type="checkbox" data-setting="skipDuplicates"> Skip repeated messages</label>
+      </div>
+      <div class="two">
+        <label class="f"><span>Max message length</span><input type="number" min="20" max="500" step="10" data-setting="maxLength"></label>
+        <label class="f"><span>Max messages waiting</span><input type="number" min="1" max="100" step="1" data-setting="maxQueue"></label>
+        <label class="f"><span>Per-person cooldown (seconds)</span><input type="number" min="0" max="600" step="1" data-setting="userCooldown"></label>
+        <label class="f"><span>Only read messages starting with</span><input type="text" placeholder="e.g. !tts (empty = all)" data-setting="prefix"></label>
+      </div>
+      <label class="f"><span>Blocked words (comma separated)</span><textarea data-setting="blockedWords" placeholder="word1, word2"></textarea></label>
+      <label class="f"><span>Ignored users (comma separated @usernames, e.g. bots)</span><textarea data-setting="ignoredUsers" placeholder="somebot, spammer123"></textarea></label>
+      <p class="note">When too many messages are waiting, the oldest chat messages are dropped so the voice never falls behind.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Background &amp; minimize</summary>
+    <div class="fields">
+      <label class="c"><input type="checkbox" data-setting="keepAlive"> Keep running when minimized or in another tab</label>
+      <p class="note">Plays an inaudible 25&nbsp;Hz tone so the browser treats this tab as "playing audio" and never pauses, freezes or unloads it. You'll see a speaker icon on the tab — that's normal.</p>
+      <label class="c"><input type="checkbox" data-setting="keepScreenOn"> Keep screen on (phones/tablets)</label>
+    </div>
+  </details>
+
+  <footer>
+    <ul>
+      <li>Minimize the window or switch tabs — it keeps reading. Just don't close this tab.</li>
+      <li>If you're not live yet, it waits and connects automatically when you go live. If TikTok drops the connection, it reconnects by itself.</li>
+      <li>Best voices: <b>Microsoft Edge</b> has natural-sounding "Online (Natural)" voices. Chrome works too.</li>
+      <li>Want the voice on stream? In OBS add an <i>Audio Output Capture</i> (or desktop audio) source.</li>
+    </ul>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
