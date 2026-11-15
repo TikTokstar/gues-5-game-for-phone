@@ -21,6 +21,7 @@ const DEMO = args.includes('--demo') || process.env.TTS_DEMO === '1';
 const OPEN = args.includes('--open') && !process.env.NO_OPEN;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+const IS_TERMUX = Boolean(process.env.TERMUX_VERSION) || (process.env.PREFIX || '').includes('com.termux');
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 
 const TYPES = {
@@ -123,9 +124,13 @@ const heartbeat = setInterval(() => {
 server.listen(PORT, HOST, () => {
   const local = `http://localhost:${PORT}`;
   console.log(`\nTikTok LIVE TTS is running${DEMO ? ' in DEMO mode (fake chat)' : ''}.`);
-  console.log(`  Open on this computer:  ${local}`);
+  console.log(`  Open in your browser:  ${local}`);
   for (const ip of lanAddresses()) console.log(`  Open on your phone (same Wi-Fi):  http://${ip}:${PORT}`);
-  console.log('  Keep this window open while you stream. Press Ctrl+C to stop.\n');
+  console.log(
+    IS_TERMUX
+      ? '  Leave Termux running in the background while you stream. To stop: Ctrl+C (or close Termux).\n'
+      : '  Keep this window open while you stream. Press Ctrl+C to stop.\n',
+  );
   if (OPEN) openBrowser(local);
 });
 
@@ -138,16 +143,21 @@ server.on('error', (err) => {
 });
 
 function lanAddresses() {
-  if (HOST !== '0.0.0.0') return [];
-  return Object.values(os.networkInterfaces())
-    .flat()
-    .filter((i) => i && i.family === 'IPv4' && !i.internal)
-    .map((i) => i.address);
+  if (HOST !== '0.0.0.0' || IS_TERMUX) return [];
+  try {
+    return Object.values(os.networkInterfaces())
+      .flat()
+      .filter((i) => i && i.family === 'IPv4' && !i.internal)
+      .map((i) => i.address);
+  } catch {
+    return []; // Android 11+ doesn't allow listing network interfaces
+  }
 }
 
 function openBrowser(url) {
-  const [cmd, cmdArgs] =
-    process.platform === 'win32'
+  const [cmd, cmdArgs] = IS_TERMUX
+    ? ['termux-open-url', [url]]
+    : process.platform === 'win32'
       ? ['cmd', ['/c', 'start', '', url]]
       : process.platform === 'darwin'
         ? ['open', [url]]

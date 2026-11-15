@@ -10,7 +10,34 @@ Reads your TikTok LIVE chat out loud in your browser. Type your **@username**, p
 - Spam filters: links, emojis, "loooool", !commands, repeated messages, blocked words, ignored users, per-person cooldown, and who's allowed to trigger it (everyone, followers, subs or mods).
 - Pick any voice your browser has, and set the speed, pitch and volume.
 
-## Start it
+## On an Android phone (no computer needed)
+
+Everything runs on the phone. **Termux** runs the small server, and **Chrome** reads the chat.
+
+**One-time setup**
+
+1. Install **Termux** from F-Droid (<https://f-droid.org/packages/com.termux/>) or from GitHub (<https://github.com/termux/termux-app/releases>, the `arm64-v8a` .apk). Don't use the old Play Store version.
+2. Open Termux, paste this line and press Enter. It takes about 5 minutes.
+
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/TikTokstar/gues-5-game-for-phone/ccr-3bcb2e4d-py3d2b/tiktok-tts/termux-setup.sh | bash
+   ```
+
+3. **Xiaomi / Poco / Redmi (HyperOS/MIUI):** these phones close background apps aggressively, so:
+   - Go to *Settings → Apps → Manage apps → **Termux** → Battery saver →* **No restrictions**. Do the same for **Chrome**.
+   - Open the recent-apps screen, long-press the **Termux** card and tap the 🔒 lock. Do the same for **Chrome**.
+
+**Every stream**
+
+1. Open Termux, type `tts` and press Enter. Chrome opens by itself.
+2. Type your @ and press **Start**.
+3. Switch to the TikTok app and go LIVE. Termux and Chrome keep running in the background. Don't swipe them away.
+
+Type `tts demo` to test with fake chat first. Type `tts update` to get the newest version.
+
+Before your first real stream, do a test: run `tts demo`, press Start, switch to TikTok and check that it keeps talking. Also check whether viewers hear it (a test LIVE or ask a friend). TikTok's echo cancellation can filter out sound that comes from the phone's own speaker.
+
+## Start it on a computer
 
 You need **Node.js** (free) on the computer you stream from. Get the **LTS** version from <https://nodejs.org>. You only install it once.
 

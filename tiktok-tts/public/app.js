@@ -484,6 +484,11 @@
     } else if (!S.keepAlive) {
       el.className = 'bg-status warn';
       el.textContent = '⚠ Background mode is off. The browser may slow this tab down when minimized.';
+    } else if (keep.audio && !keep.audio.paused && isAndroid) {
+      el.className = 'bg-status ok';
+      el.textContent =
+        '✓ Background mode on — you can switch to the TikTok app. Don\'t swipe Chrome or Termux away. ' +
+        'Xiaomi/Poco/Redmi: set Battery saver to "No restrictions" for Chrome and Termux.';
     } else if (keep.audio && !keep.audio.paused) {
       el.className = 'bg-status ok';
       el.textContent = '✓ Background mode on — safe to minimize the window or switch tabs. Just don\'t close this tab.';
