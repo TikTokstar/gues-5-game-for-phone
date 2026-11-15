@@ -1,78 +1,44 @@
 /* TikTok LIVE TTS — browser side.
  *
- * Gets chat from the local server over a WebSocket and reads it with the
- * browser's built-in speech (speechSynthesis).
- *
- * Staying alive when minimized:
- *  - All event flow is event-driven (WebSocket messages, utterance end events),
- *    which browsers keep delivering to hidden tabs.
- *  - Timers (watchdogs, reconnects) run in a Web Worker, which isn't throttled
- *    like timers on a hidden page.
- *  - A looping, inaudible 25 Hz tone makes the tab count as "playing audio", so
- *    Chrome/Edge never throttle, freeze or discard it (Memory Saver skips it too),
- *    and Android keeps the page running with a media notification.
- *  - A Web Lock is held while running (another signal browsers use to avoid
- *    freezing a page).
- *  - Everything self-heals: socket watchdog + reconnect, stuck-speech watchdog.
+ * Two ways to speak:
+ *  - Phone voice (Android + Termux): the server decides what to say and speaks
+ *    it with the phone's own voice. This page is only a remote control and chat
+ *    view, so it can be minimized or closed and the reading goes on.
+ *  - Browser voice (computers): this page speaks with speechSynthesis. To keep
+ *    going when minimized it plays an inaudible tone (so the tab counts as
+ *    "playing audio" and isn't throttled/frozen), runs its timers in a Web
+ *    Worker, holds a Web Lock, and has watchdogs for the socket and speech.
  */
 (function () {
   'use strict';
 
-  // ---------------------------------------------------------------- settings
-  const DEFAULTS = {
-    username: '',
-    voiceURI: '',
-    rate: 1,
-    pitch: 1,
-    volume: 1,
-    readChat: true,
-    readGifts: true,
-    readFollows: true,
-    readShares: false,
-    readJoins: false,
-    readLikes: false,
-    who: 'all',
-    sayNames: true,
-    nameSource: 'nickname',
-    chatTemplate: '{name} says {text}',
-    giftTemplate: '{name} sent {count} {gift}',
-    followTemplate: '{name} followed',
-    shareTemplate: '{name} shared the live',
-    joinTemplate: 'Welcome {name}',
-    likeTemplate: '{name} sent likes',
-    minGiftCoins: 0,
-    maxLength: 150,
-    maxQueue: 10,
-    userCooldown: 0,
-    prefix: '',
-    skipLinks: true,
-    stripEmojis: true,
-    collapseRepeats: true,
-    skipCommands: true,
-    skipDuplicates: true,
-    blockedWords: '',
-    ignoredUsers: '',
-    keepAlive: true,
-    keepScreenOn: false,
-  };
-  const STORE_KEY = 'tiktok-tts-settings-v1';
+  const B = window.TTSBrain;
+  const LANG = navigator.language || 'en';
 
+  // ---------------------------------------------------------------- settings
+  const STORE_KEY = 'tiktok-tts-settings-v1';
   function loadSettings() {
+    let saved = {};
     try {
-      const saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
-      return Object.assign({}, DEFAULTS, saved && typeof saved === 'object' ? saved : {});
+      saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}');
     } catch (e) {
-      return Object.assign({}, DEFAULTS);
+      /* ignore */
     }
+    const s = B.withDefaults(saved, LANG);
+    s.lang = LANG;
+    return s;
   }
+  const S = loadSettings();
+  let settingsTimer = null;
   function saveSettings() {
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(S));
     } catch (e) {
       /* private mode etc. — settings just won't be remembered */
     }
+    clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(() => sendMsg({ type: 'settings', settings: S }), 300);
   }
-  const S = loadSettings();
 
   // ---------------------------------------------------------------- dom
   const $ = (id) => document.getElementById(id);
@@ -95,6 +61,7 @@
     feedEmpty: $('feedEmpty'),
     voice: $('voice'),
     voiceNote: $('voiceNote'),
+    speakNote: $('speakNote'),
     testText: $('testText'),
     testBtn: $('testBtn'),
   };
@@ -107,6 +74,13 @@
   const isGoogleChrome = /Chrome\//.test(navigator.userAgent) && !/Edg\/|OPR\//.test(navigator.userAgent) && !isAndroid;
 
   let running = false;
+  let mode = 'browser'; // how the current run speaks: 'server' (phone voice) or 'browser'
+  let speech = { available: false, checking: true, why: '' }; // phone voice status from the server
+  let serverPaused = false;
+
+  function phoneWanted() {
+    return S.speakOn !== 'browser' && speech.available;
+  }
 
   // ---------------------------------------------------------------- ticker (Web Worker)
   // Timers inside a worker keep firing on schedule when the page is hidden.
@@ -134,66 +108,7 @@
     }
   })();
 
-  // ---------------------------------------------------------------- text cleanup
-  const EMOJI_RE = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}︎️‍⃣]/gu;
-  const LINK_RE = /\b(?:https?:\/\/|www\.)\S+|\b[\w-]+(?:\.[\w-]+)*\.(?:com|net|org|io|gg|tv|me|co|ly|xyz|app|link|ru|info|biz|shop|store|live)\b\S*/gi;
-
-  function cleanText(input) {
-    let t = String(input || '').normalize('NFKC');
-    if (S.skipLinks) t = t.replace(LINK_RE, ' ');
-    if (S.stripEmojis) t = t.replace(/\[[a-z0-9_]{1,24}\]/gi, ' ').replace(EMOJI_RE, '');
-    if (S.collapseRepeats) {
-      t = t.replace(/(.)\1{2,}/gsu, '$1$1'); // "loooool" -> "lool", "!!!!!" -> "!!"
-      t = t.replace(/(^|\s)(\S+)(?:\s+\2(?=\s|$)){2,}/giu, '$1$2 $2'); // "lol lol lol lol" -> "lol lol"
-    }
-    return t.replace(/\s+/g, ' ').trim();
-  }
-
-  function truncate(t, max) {
-    max = Math.max(20, Number(max) || 150);
-    if (t.length <= max) return t;
-    const cut = t.slice(0, max);
-    const sp = cut.lastIndexOf(' ');
-    return (sp > max * 0.6 ? cut.slice(0, sp) : cut).trim();
-  }
-
-  function spokenName(user) {
-    const uniqueId = (user && user.uniqueId) || '';
-    let n = S.nameSource === 'username' ? uniqueId : (user && user.nickname) || uniqueId;
-    n = String(n).normalize('NFKC').replace(EMOJI_RE, '').replace(/[^\p{L}\p{N}\s._'-]/gu, ' ');
-    if (!/[\p{L}\p{N}]/u.test(n)) n = uniqueId;
-    // "gamer_kid.99" -> "gamer kid 99"; drop long trailing number tails like "mila20481234"
-    n = n.replace(/[._]+/g, ' ').replace(/(\p{L})\d{4,}$/u, '$1');
-    if (S.collapseRepeats) n = n.replace(/(.)\1{2,}/gsu, '$1$1');
-    n = n.replace(/\s+/g, ' ').trim();
-    return truncate(n || 'someone', 30);
-  }
-
-  function fill(template, vars) {
-    return String(template || '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m));
-  }
-
-  function listSetting(str) {
-    return String(str || '')
-      .split(/[,\n]/)
-      .map((w) => w.trim().toLowerCase().replace(/^@/, ''))
-      .filter(Boolean);
-  }
-  function escapeRe(s) {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  function containsBlocked(text) {
-    const words = listSetting(S.blockedWords);
-    if (!words.length) return false;
-    return words.some((w) => new RegExp('(^|[^\\p{L}\\p{N}])' + escapeRe(w) + '($|[^\\p{L}\\p{N}])', 'iu').test(text));
-  }
-
-  function plural(gift, count) {
-    if (count <= 1 || /s$/i.test(gift)) return gift;
-    return gift + 's';
-  }
-
-  // ---------------------------------------------------------------- speech
+  // ---------------------------------------------------------------- browser speech
   const tts = {
     queue: [],
     current: null, // { u, item, startedAt, expectMs, nudgedAt }
@@ -286,15 +201,15 @@
     abortCurrent('skipped');
   }
 
-  function voiceIsRemote() {
-    const v = pickVoice() || voices.find((x) => x.default);
-    return Boolean(v && v.localService === false);
-  }
-
   function clearQueue() {
     for (const q of tts.queue) setTag(q.feedItem, 'skipped', 'cleared');
     tts.queue = [];
     updateQueue();
+  }
+
+  function voiceIsRemote() {
+    const v = pickVoice() || voices.find((x) => x.default);
+    return Boolean(v && v.localService === false);
   }
 
   // Speech watchdog: recovers from the well-known Chrome speechSynthesis hangs.
@@ -305,11 +220,9 @@
       const t = now();
       const elapsed = t - cur.startedAt;
       if (elapsed > cur.expectMs + 8000) {
-        // Stuck: never started or never ended.
-        abortCurrent('skipped');
+        abortCurrent('skipped'); // stuck: never started or never ended
       } else if (elapsed > 3000 && !synth.speaking && !synth.pending) {
-        // Ended, but the browser forgot to fire 'end'.
-        finish(cur.u, 'read');
+        finish(cur.u, 'read'); // ended, but the browser forgot to fire 'end'
       } else if (isGoogleChrome && t - cur.nudgedAt > 10000 && synth.speaking && voiceIsRemote()) {
         // Desktop Chrome's online Google voices stop after ~15s unless poked.
         cur.nudgedAt = t;
@@ -323,7 +236,7 @@
   function loadVoices() {
     if (!hasSpeech) return;
     voices = synth.getVoices().slice();
-    const lang = (navigator.language || 'en').toLowerCase().split('-')[0];
+    const lang = LANG.toLowerCase().split('-')[0];
     voices.sort((a, b) => {
       const al = a.lang.toLowerCase().startsWith(lang) ? 0 : 1;
       const bl = b.lang.toLowerCase().startsWith(lang) ? 0 : 1;
@@ -348,12 +261,11 @@
       ? 'Loading voices…'
       : hasNatural
         ? 'Tip: voices marked "Natural" sound the most human.'
-        : 'Tip: open this page in Microsoft Edge for much more natural-sounding voices.';
+        : 'Tip: on a computer, Microsoft Edge has much more natural-sounding voices.';
   }
   if (hasSpeech) {
     loadVoices();
     if ('onvoiceschanged' in synth) synth.addEventListener('voiceschanged', loadVoices);
-    // Some browsers fill the list late without firing the event.
     let tries = 0;
     const vt = setInterval(() => {
       if (voices.length || ++tries > 20) return clearInterval(vt);
@@ -361,15 +273,27 @@
     }, 250);
   }
 
-  // ---------------------------------------------------------------- keep alive in background
+  function unlockSpeech() {
+    // Browsers only allow speech after a click; speaking once from the click unlocks it for good.
+    if (!hasSpeech) return;
+    try {
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      synth.speak(u);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  // ---------------------------------------------------------------- keep alive (browser voice)
   const keep = { audio: null, url: null, lockRelease: null, wake: null };
 
   function keepAliveWavUrl() {
     // A 25 Hz sine at -54 dBFS: below what people (and speakers) can hear, but
     // above the level browsers use to decide a tab is "playing audio".
-    // Desktop: a 2 s loop, too short for the browser to grab your keyboard's
-    // play/pause keys. Android: 10 s, so it gets a media notification, which is
-    // what keeps the page running in the background there.
+    // Desktop: a 2 s loop, too short for the browser to grab the play/pause keys.
+    // Android: 10 s, so it gets a media notification.
     const rate = 8000;
     const n = rate * (isAndroid ? 10 : 2);
     const buf = new ArrayBuffer(44 + n * 2);
@@ -445,8 +369,8 @@
   }
 
   function setupMediaSession() {
-    // Only on Android, where the media notification keeps the page alive and
-    // doubles as a pause button. On computers it would steal the play/pause keys.
+    // Only on Android, where the media notification helps keep the page alive.
+    // On computers it would steal the keyboard's play/pause keys.
     if (!isAndroid || !('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -462,10 +386,10 @@
     }
   }
 
-  // If the OS/browser paused our keep-alive audio (e.g. another app took audio), restart it.
+  // If the OS/browser paused our keep-alive audio, restart it.
   let lastAudioCheck = 0;
   onTick(() => {
-    if (!running || !S.keepAlive || !keep.audio) return;
+    if (!running || mode !== 'browser' || !S.keepAlive || !keep.audio) return;
     if (now() - lastAudioCheck < 2000) return;
     lastAudioCheck = now();
     if (keep.audio.paused) keep.audio.play().catch(() => {});
@@ -478,30 +402,55 @@
       el.textContent = '';
       return;
     }
-    if (isIOS) {
+    if (mode === 'server') {
+      el.className = 'bg-status ok';
+      el.textContent =
+        '✓ Termux reads the chat with the phone voice — you can minimize or even close Chrome and go LIVE. ' +
+        "Just don't swipe Termux away.";
+    } else if (isIOS) {
       el.className = 'bg-status warn';
       el.textContent = '⚠ iPhone/iPad stop web pages in the background. Keep this page open on screen (turn on "Keep screen on"), or run it on a computer.';
+    } else if (isAndroid) {
+      el.className = 'bg-status warn';
+      el.textContent =
+        '⚠ Chrome on Android stops talking when minimized. Use the phone voice instead: in Termux run "tts update", then reopen this page.';
     } else if (!S.keepAlive) {
       el.className = 'bg-status warn';
       el.textContent = '⚠ Background mode is off. The browser may slow this tab down when minimized.';
-    } else if (keep.audio && !keep.audio.paused && isAndroid) {
-      el.className = 'bg-status ok';
-      el.textContent =
-        '✓ Background mode on — you can switch to the TikTok app. Don\'t swipe Chrome or Termux away. ' +
-        'Xiaomi/Poco/Redmi: set Battery saver to "No restrictions" for Chrome and Termux.';
     } else if (keep.audio && !keep.audio.paused) {
       el.className = 'bg-status ok';
-      el.textContent = '✓ Background mode on — safe to minimize the window or switch tabs. Just don\'t close this tab.';
+      el.textContent = "✓ Background mode on — safe to minimize the window or switch tabs. Just don't close this tab.";
     } else {
       el.className = 'bg-status warn';
       el.textContent = '⚠ Background mode is waiting for the browser to allow audio. Click anywhere on this page once.';
     }
   }
 
+  function updateSpeakNote() {
+    const el = ui.speakNote;
+    if (speech.available) {
+      el.className = 'note ok';
+      el.textContent =
+        S.speakOn === 'browser'
+          ? 'Phone voice is ready, but you chose the browser. The browser stops talking when Chrome is minimized.'
+          : '✓ Phone voice ready — keeps reading when Chrome is minimized or closed.';
+    } else if (speech.checking) {
+      el.className = 'note';
+      el.textContent = 'Checking the phone voice…';
+    } else if (isAndroid || S.speakOn === 'phone') {
+      el.className = 'note warn';
+      el.textContent = '⚠ Phone voice not available: ' + (speech.why || 'unknown reason');
+    } else {
+      el.className = 'note';
+      el.textContent = '';
+    }
+    document.body.classList.toggle('phone', running ? mode === 'server' : phoneWanted());
+  }
+
   // ---------------------------------------------------------------- server connection
   const net = {
     ws: null,
-    want: false,
+    want: location.protocol !== 'file:',
     attempts: 0,
     retryAt: 0,
     lastMsgAt: 0,
@@ -511,13 +460,26 @@
     return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
   }
 
+  function socketOpen() {
+    return Boolean(net.ws && net.ws.readyState === 1);
+  }
+
+  function sendMsg(msg) {
+    if (!socketOpen()) return false;
+    try {
+      net.ws.send(JSON.stringify(msg));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function sendJoin() {
+    sendMsg({ type: 'join', username: S.username, mode: mode, settings: S });
+  }
+
   function openSocket() {
     if (net.ws || !net.want) return;
-    if (location.protocol === 'file:') {
-      setStatus('error', 'Server not running', 'Open this page through the server: run "npm start" in the tiktok-tts folder, then go to http://localhost:3000');
-      net.want = false;
-      return;
-    }
     let ws;
     try {
       ws = new WebSocket(wsUrl());
@@ -529,7 +491,8 @@
     net.lastMsgAt = now();
     ws.onopen = () => {
       net.attempts = 0;
-      ws.send(JSON.stringify({ type: 'join', username: S.username }));
+      if (running) sendJoin();
+      else sendMsg({ type: 'settings', settings: S });
     };
     ws.onmessage = (e) => {
       net.lastMsgAt = now();
@@ -566,7 +529,13 @@
     const delay = Math.min(1000 * 2 ** net.attempts, 15000);
     net.attempts += 1;
     net.retryAt = now() + delay;
-    setStatus('server', 'Reconnecting…', 'Lost connection to the TTS server. Reconnecting in ' + Math.round(delay / 1000) + 's… (is the server window still open?)');
+    if (running) {
+      setStatus(
+        'server',
+        'Reconnecting…',
+        'Lost connection to the TTS server. Reconnecting in ' + Math.round(delay / 1000) + 's… (is Termux / the server window still open?)',
+      );
+    }
   }
 
   onTick(() => {
@@ -586,17 +555,43 @@
     switch (msg.type) {
       case 'hello':
         if (msg.demo) ui.startHint.textContent = 'DEMO MODE: the server is sending fake chat so you can test voices and settings.';
+        // The phone is already reading a LIVE (e.g. Chrome was closed and reopened): show it.
+        if (!running && Array.isArray(msg.active) && msg.active.length) attach(msg.active[0].username);
+        return;
+      case 'speaker': {
+        const before = speech.available;
+        speech = msg;
+        updateSpeakNote();
+        // The phone voice became ready after Start was pressed: switch to it.
+        if (running && mode === 'browser' && !before && phoneWanted()) restart();
+        return;
+      }
+      case 'queue':
+        serverPaused = Boolean(msg.paused);
+        if (mode === 'server') {
+          ui.queueLen.textContent = String(msg.length || 0);
+          updatePauseBtn();
+          updateTitle();
+        }
+        return;
+      case 'tag':
+        setTag(feedById.get(msg.fid), msg.state, msg.reason);
+        return;
+      case 'test':
+        addServerFeed(msg);
         return;
       case 'hb':
         return;
       case 'status':
-        onStatus(msg);
+        if (running) onStatus(msg);
         return;
       case 'viewers':
-        showViewers(msg.count);
+        if (running) showViewers(msg.count);
         return;
       default:
-        onLiveEvent(msg);
+        if (!running) return;
+        if (msg.feed) addServerFeed(msg); // phone mode: the server already decided and speaks it
+        else if (mode === 'browser') onLiveEvent(msg);
     }
   }
 
@@ -610,13 +605,13 @@
       error: 'Retrying…',
       invalid: 'Check username',
     };
-    setStatus(msg.state, labels[msg.state] || msg.state, msg.message || '');
-    if (typeof msg.viewers === 'number') showViewers(msg.viewers);
     if (msg.state === 'invalid') {
       stop();
       setStatus('invalid', labels.invalid, msg.message);
       return;
     }
+    setStatus(msg.state, labels[msg.state] || msg.state, msg.message || '');
+    if (typeof msg.viewers === 'number') showViewers(msg.viewers);
     if (msg.state !== lastState) {
       if (msg.state === 'live') addSystem('Connected to @' + msg.username + "'s LIVE.");
       else if (msg.state === 'offline' && lastState === 'live') addSystem('The LIVE ended. Waiting for the next one…');
@@ -624,94 +619,21 @@
     }
   }
 
-  // ---------------------------------------------------------------- events -> speech
-  const recent = new Map(); // duplicate detection: key -> time
-  const lastByUser = new Map(); // cooldown: uniqueId -> time
-  const lastLikeByUser = new Map();
+  // ---------------------------------------------------------------- events -> speech (browser voice)
+  const mem = B.createMemory();
 
   function onLiveEvent(ev) {
-    if (!running) return;
-    const user = ev.user || {};
-    const uid = String(user.uniqueId || '').toLowerCase();
-    const display = user.nickname || user.uniqueId || 'someone';
-    const ignored = uid && listSetting(S.ignoredUsers).includes(uid);
-    const name = spokenName(user);
-
-    if (ev.type === 'chat') {
-      const item = addFeed('chat', display, ev.text);
-      if (!S.readChat) return setTag(item, 'skipped', 'chat off');
-      if (ignored) return setTag(item, 'skipped', 'ignored');
-      const allowed =
-        S.who === 'all' ||
-        ev.isHost ||
-        ev.isMod ||
-        (S.who === 'subs' && ev.isSub) ||
-        (S.who === 'followers' && (ev.isSub || ev.isFollower));
-      if (!allowed) return setTag(item, 'skipped', 'not allowed');
-      let text = String(ev.text || '').trim();
-      const prefix = String(S.prefix || '').trim();
-      if (prefix) {
-        if (!text.toLowerCase().startsWith(prefix.toLowerCase())) return setTag(item, 'skipped', 'no ' + prefix);
-        text = text.slice(prefix.length).trim();
-      } else if (S.skipCommands && /^[!/]/.test(text)) {
-        return setTag(item, 'skipped', 'command');
-      }
-      if (containsBlocked(text)) return setTag(item, 'skipped', 'blocked word');
-      text = cleanText(text);
-      if (!/[\p{L}\p{N}]/u.test(text)) return setTag(item, 'skipped', 'nothing to read');
-      const t = now();
-      if (S.skipDuplicates) {
-        for (const [k, at] of recent) if (t - at > 60000) recent.delete(k);
-        const key = uid + '|' + text.toLowerCase();
-        if (recent.has(key)) return setTag(item, 'skipped', 'repeat');
-        recent.set(key, t);
-      }
-      const cd = Number(S.userCooldown) || 0;
-      if (cd > 0 && uid) {
-        if (t - (lastByUser.get(uid) || 0) < cd * 1000) return setTag(item, 'skipped', 'cooldown');
-        lastByUser.set(uid, t);
-      }
-      text = truncate(text, S.maxLength);
-      const spoken = S.sayNames ? fill(S.chatTemplate || '{name} says {text}', { name, text }) : text;
-      return enqueue(spoken, item, 'chat');
-    }
-
-    if (ev.type === 'gift') {
-      const count = Number(ev.count) || 1;
-      const giftName = cleanText(ev.gift) || 'a gift';
-      const item = addFeed('gift', display, 'sent ' + (count > 1 ? count + '× ' : '') + ev.gift);
-      if (!S.readGifts) return setTag(item, 'skipped', 'gifts off');
-      if (ignored) return setTag(item, 'skipped', 'ignored');
-      if ((Number(ev.coins) || 0) < (Number(S.minGiftCoins) || 0)) return setTag(item, 'skipped', 'small gift');
-      return enqueue(fill(S.giftTemplate, { name, gift: plural(giftName, count), count }), item, 'gift');
-    }
-
-    if (ev.type === 'follow' || ev.type === 'share') {
-      const item = addFeed(ev.type, display, ev.type === 'follow' ? 'followed' : 'shared the LIVE');
-      const on = ev.type === 'follow' ? S.readFollows : S.readShares;
-      if (!on) return setTag(item, 'skipped', 'off');
-      if (ignored) return setTag(item, 'skipped', 'ignored');
-      return enqueue(fill(ev.type === 'follow' ? S.followTemplate : S.shareTemplate, { name }), item, ev.type);
-    }
-
-    if (ev.type === 'join') {
-      if (!S.readJoins || ignored) return; // joins are too frequent to show when not read
-      const item = addFeed('join', display, 'joined');
-      return enqueue(fill(S.joinTemplate, { name }), item, 'join');
-    }
-
-    if (ev.type === 'like') {
-      if (!S.readLikes || ignored) return;
-      const t = now();
-      if (t - (lastLikeByUser.get(uid) || 0) < 60000) return; // at most once a minute per person
-      lastLikeByUser.set(uid, t);
-      const item = addFeed('like', display, 'sent likes');
-      return enqueue(fill(S.likeTemplate, { name, count: ev.count || 1 }), item, 'like');
-    }
+    const d = B.decide(ev, S, mem);
+    if (!d) return;
+    const item = addFeed(d.kind, d.who, d.what);
+    if (!d.speak) return setTag(item, 'skipped', d.reason);
+    enqueue(d.speak, item, d.kind);
   }
 
   // ---------------------------------------------------------------- feed ui
   const FEED_MAX = 150;
+  const feedById = new Map();
+
   function addFeed(kind, who, what) {
     const li = document.createElement('li');
     li.className = 'ev-' + kind;
@@ -726,9 +648,20 @@
     li.append(w, tag, t);
     li._tag = tag;
     ui.feed.prepend(li);
-    while (ui.feed.children.length > FEED_MAX) ui.feed.lastElementChild.remove();
+    while (ui.feed.children.length > FEED_MAX) {
+      const old = ui.feed.lastElementChild;
+      if (old._fid) feedById.delete(old._fid);
+      old.remove();
+    }
     ui.feedEmpty.style.display = 'none';
     return li;
+  }
+  function addServerFeed(msg) {
+    const f = msg.feed || {};
+    const li = addFeed(f.kind || 'chat', f.who || '', f.what || '');
+    li._fid = msg.fid;
+    feedById.set(msg.fid, li);
+    if (msg.tag) setTag(li, msg.tag.state, msg.tag.reason);
   }
   function addSystem(text) {
     const li = document.createElement('li');
@@ -746,7 +679,7 @@
     li._tag.textContent = reason ? state + ' · ' + reason : state;
   }
   function updateQueue() {
-    ui.queueLen.textContent = String(tts.queue.length);
+    if (mode === 'browser' || !running) ui.queueLen.textContent = String(tts.queue.length);
   }
   function showViewers(n) {
     if (typeof n !== 'number') return;
@@ -763,9 +696,12 @@
     ui.statusMsg.classList.toggle('err', state === 'invalid' || (state === 'error' && !running));
     updateTitle();
   }
+  function isPaused() {
+    return running && mode === 'server' ? serverPaused : tts.paused;
+  }
   function updateTitle() {
     let t = 'TikTok TTS';
-    if (running) t = (pillState === 'live' ? '🔴 ' : '⏳ ') + t + (tts.paused ? ' (paused)' : '');
+    if (running) t = (pillState === 'live' ? '🔴 ' : '⏳ ') + t + (isPaused() ? ' (paused)' : '');
     document.title = t;
   }
 
@@ -778,17 +714,16 @@
     return /^[a-z0-9._]{1,24}$/.test(s) ? s : null;
   }
 
-  function unlockSpeech() {
-    // Browsers only allow speech after a click; speaking once from the click unlocks it for good.
-    if (!hasSpeech) return;
-    try {
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance(' ');
-      u.volume = 0;
-      synth.speak(u);
-    } catch (e) {
-      /* ignore */
-    }
+  function setRunningUI() {
+    document.body.classList.toggle('running', running);
+    ui.startBtn.textContent = running ? 'Stop' : 'Start';
+    ui.startBtn.classList.toggle('stop', running);
+    ui.username.disabled = running;
+    if (!running) ui.viewers.classList.remove('show');
+    updatePauseBtn();
+    updateBgStatus();
+    updateSpeakNote();
+    updateQueue();
   }
 
   function start() {
@@ -798,7 +733,8 @@
       ui.username.focus();
       return;
     }
-    if (!hasSpeech) {
+    mode = phoneWanted() ? 'server' : 'browser';
+    if (mode === 'browser' && !hasSpeech) {
       setStatus('error', 'No speech', "This browser can't speak text. Use Chrome or Edge.");
       return;
     }
@@ -808,44 +744,43 @@
     running = true;
     lastState = '';
     tts.paused = false;
-    document.body.classList.add('running');
-    ui.startBtn.textContent = 'Stop';
-    ui.startBtn.classList.add('stop');
-    ui.username.disabled = true;
-    unlockSpeech();
-    startKeepAlive();
-    updatePauseBtn();
-    net.want = true;
-    net.attempts = 0;
-    net.retryAt = 0;
+    if (mode === 'browser') {
+      unlockSpeech();
+      startKeepAlive();
+    }
+    setRunningUI();
     setStatus('connecting', 'Connecting…', 'Connecting to @' + name + '…');
-    openSocket();
+    if (socketOpen()) sendJoin();
+    else {
+      net.retryAt = 0;
+      openSocket();
+    }
     try {
-      sessionStorage.setItem('tiktok-tts-running', '1');
+      sessionStorage.setItem('tiktok-tts-running', mode === 'browser' ? '1' : '');
     } catch (e) {
       /* ignore */
     }
   }
 
+  // The phone is already reading @username: show it here without needing a click.
+  function attach(username) {
+    S.username = username;
+    ui.username.value = username;
+    running = true;
+    mode = 'server';
+    lastState = '';
+    setRunningUI();
+    setStatus('connecting', 'Connecting…', '');
+    sendJoin();
+  }
+
   function stop() {
+    sendMsg({ type: mode === 'server' ? 'stop' : 'leave' });
     running = false;
-    net.want = false;
-    if (net.ws && net.ws.readyState === 1) {
-      try {
-        net.ws.send(JSON.stringify({ type: 'leave' }));
-      } catch (e) {
-        /* ignore */
-      }
-    }
-    dropSocket();
     clearQueue();
     skipCurrent();
     stopKeepAlive();
-    document.body.classList.remove('running');
-    ui.startBtn.textContent = 'Start';
-    ui.startBtn.classList.remove('stop');
-    ui.username.disabled = false;
-    ui.viewers.classList.remove('show');
+    setRunningUI();
     setStatus('idle', 'Not running', '');
     try {
       sessionStorage.removeItem('tiktok-tts-running');
@@ -854,7 +789,17 @@
     }
   }
 
+  function restart() {
+    if (!running) return;
+    stop();
+    start();
+  }
+
   function setPaused(p) {
+    if (running && mode === 'server') {
+      sendMsg({ type: 'control', action: p ? 'pause' : 'resume' });
+      return;
+    }
     tts.paused = p;
     if (p) {
       clearQueue();
@@ -866,7 +811,7 @@
     pump();
   }
   function updatePauseBtn() {
-    ui.pauseBtn.textContent = tts.paused ? '▶ Resume reading' : '⏸ Pause reading';
+    ui.pauseBtn.textContent = isPaused() ? '▶ Resume reading' : '⏸ Pause reading';
   }
 
   ui.form.addEventListener('submit', (e) => {
@@ -874,19 +819,27 @@
     if (running) stop();
     else start();
   });
-  ui.pauseBtn.addEventListener('click', () => setPaused(!tts.paused));
-  ui.skipBtn.addEventListener('click', skipCurrent);
-  ui.clearBtn.addEventListener('click', clearQueue);
+  ui.pauseBtn.addEventListener('click', () => setPaused(!isPaused()));
+  ui.skipBtn.addEventListener('click', () => {
+    if (running && mode === 'server') sendMsg({ type: 'control', action: 'skip' });
+    else skipCurrent();
+  });
+  ui.clearBtn.addEventListener('click', () => {
+    if (running && mode === 'server') sendMsg({ type: 'control', action: 'clear' });
+    else clearQueue();
+  });
   ui.testBtn.addEventListener('click', () => {
+    const raw = ui.testText.value;
+    if ((running ? mode === 'server' : phoneWanted()) && sendMsg({ type: 'control', action: 'test', text: raw })) return;
     if (!hasSpeech) return;
-    const text = cleanText(ui.testText.value) || 'Hello!';
-    const item = addFeed('chat', 'Test', ui.testText.value);
+    const item = addFeed('chat', 'Test', raw);
     if (tts.paused) setPaused(false);
-    enqueue(text, item, 'test');
+    enqueue(B.cleanText(raw, S) || 'Hello!', item, 'test');
   });
 
   // ---------------------------------------------------------------- settings form binding
   function bindSettings() {
+    const defaults = B.defaultsFor(LANG);
     document.querySelectorAll('[data-setting]').forEach((el) => {
       const key = el.dataset.setting;
       const out = document.querySelector('output[data-for="' + key + '"]');
@@ -898,11 +851,15 @@
       show();
       const update = () => {
         if (el.type === 'checkbox') S[key] = el.checked;
-        else if (el.type === 'number' || el.type === 'range') S[key] = el.value === '' ? DEFAULTS[key] : Number(el.value);
+        else if (el.type === 'number' || el.type === 'range') S[key] = el.value === '' ? defaults[key] : Number(el.value);
         else S[key] = el.value;
         saveSettings();
         show();
-        if (key === 'keepAlive' && running) {
+        if (key === 'speakOn') {
+          updateSpeakNote();
+          if (running && (mode === 'server') !== phoneWanted()) restart();
+        }
+        if (key === 'keepAlive' && running && mode === 'browser') {
           if (S.keepAlive) startKeepAlive();
           else if (keep.audio) {
             keep.audio.pause();
@@ -927,12 +884,12 @@
   // ---------------------------------------------------------------- page lifecycle
   function wakeUp() {
     // Back from hidden/frozen: check everything right away.
-    if (!running) return;
     if (net.ws && now() - net.lastMsgAt > 40000) {
       dropSocket();
       net.retryAt = 0;
     }
-    if (S.keepAlive && keep.audio && keep.audio.paused) keep.audio.play().catch(() => {});
+    if (!net.ws) net.retryAt = 0;
+    if (running && mode === 'browser' && S.keepAlive && keep.audio && keep.audio.paused) keep.audio.play().catch(() => {});
     requestWakeLock();
     runTick();
   }
@@ -946,10 +903,10 @@
   window.addEventListener('pageshow', wakeUp);
   // Any click re-arms audio if the browser blocked it earlier.
   document.addEventListener('pointerdown', () => {
-    if (running && S.keepAlive && keep.audio && keep.audio.paused) keep.audio.play().then(updateBgStatus).catch(() => {});
+    if (running && mode === 'browser' && S.keepAlive && keep.audio && keep.audio.paused) keep.audio.play().then(updateBgStatus).catch(() => {});
   });
   window.addEventListener('beforeunload', (e) => {
-    if (!running) return;
+    if (!running || mode !== 'browser') return; // in phone mode closing the page is fine
     e.preventDefault();
     e.returnValue = '';
   });
@@ -963,14 +920,30 @@
   } catch (e) {
     /* ignore */
   }
-  if (!hasSpeech) {
-    setStatus('error', 'No speech', "This browser can't speak text. Use Chrome or Edge on a computer or Android.");
+  if (location.protocol === 'file:') {
+    setStatus('error', 'Server not running', 'Open this page through the server: run "npm start" (or "tts" in Termux), then go to http://localhost:3000');
   } else if (wasRunning && ui.username.value) {
     setStatus('idle', 'Paused', 'The page was reloaded. Press Start to continue (browsers need one click before they can talk).');
   }
+  updateSpeakNote();
   if (ui.username.value) ui.startBtn.focus();
   else ui.username.focus();
+  openSocket();
 
   // Small hook for automated tests.
-  window.__tts = { S, tts, net, keep, cleanText, spokenName, onLiveEvent, get running() { return running; } };
+  window.__tts = {
+    S,
+    tts,
+    net,
+    keep,
+    get running() {
+      return running;
+    },
+    get mode() {
+      return mode;
+    },
+    get speech() {
+      return speech;
+    },
+  };
 })();

@@ -113,6 +113,10 @@
     textarea { min-height: 64px; resize: vertical; }
     input[type="range"] { width: 100%; accent-color: var(--pink); }
     .note { font-size: 13px; color: var(--muted); margin: 0; }
+    .note:empty { display: none; }
+    .note.ok { color: var(--green); }
+    .note.warn { color: var(--amber); }
+    body.phone .browser-only, body:not(.phone) .phone-only { display: none; }
     footer { color: var(--muted); font-size: 13px; margin-top: 20px; }
     footer li { margin-bottom: 4px; }
     code { background: var(--card-2); padding: 1px 5px; border-radius: 5px; }
@@ -154,13 +158,39 @@
   <details id="voiceSection" open>
     <summary>Voice</summary>
     <div class="fields">
-      <label class="f"><span>Voice</span><select id="voice" data-setting="voiceURI"></select></label>
-      <p class="note" id="voiceNote"></p>
+      <label class="f"><span>Who reads the chat</span>
+        <select data-setting="speakOn">
+          <option value="auto">Automatic (phone voice when available)</option>
+          <option value="phone">Phone voice via Termux — works when minimized</option>
+          <option value="browser">This browser</option>
+        </select>
+      </label>
+      <p class="note" id="speakNote"></p>
+      <label class="f phone-only"><span>Phone voice language</span>
+        <select data-setting="phoneVoiceLang">
+          <option value="">Phone default</option>
+          <option value="bg">Български</option>
+          <option value="en">English</option>
+          <option value="ru">Русский</option>
+          <option value="tr">Türkçe</option>
+          <option value="ro">Română</option>
+          <option value="el">Ελληνικά</option>
+          <option value="sr">Српски</option>
+          <option value="mk">Македонски</option>
+          <option value="de">Deutsch</option>
+          <option value="es">Español</option>
+          <option value="it">Italiano</option>
+          <option value="fr">Français</option>
+        </select>
+      </label>
+      <label class="f browser-only"><span>Voice</span><select id="voice" data-setting="voiceURI"></select></label>
+      <p class="note browser-only" id="voiceNote"></p>
       <div class="two">
         <label class="f"><span>Speed <output data-for="rate"></output></span><input type="range" min="0.5" max="2" step="0.05" data-setting="rate"></label>
-        <label class="f"><span>Pitch <output data-for="pitch"></output></span><input type="range" min="0" max="2" step="0.05" data-setting="pitch"></label>
-        <label class="f"><span>Volume <output data-for="volume"></output></span><input type="range" min="0" max="1" step="0.05" data-setting="volume"></label>
+        <label class="f"><span>Pitch <output data-for="pitch"></output></span><input type="range" min="0.1" max="2" step="0.05" data-setting="pitch"></label>
+        <label class="f browser-only"><span>Volume <output data-for="volume"></output></span><input type="range" min="0" max="1" step="0.05" data-setting="volume"></label>
       </div>
+      <p class="note phone-only">Phone voice volume = your phone's media volume (volume buttons).</p>
       <div class="row">
         <input type="text" id="testText" class="grow" value="Hello! This is how your chat will sound.">
         <button type="button" class="small" id="testBtn">▶ Test</button>
@@ -230,7 +260,8 @@
   <details>
     <summary>Background &amp; minimize</summary>
     <div class="fields">
-      <label class="c"><input type="checkbox" data-setting="keepAlive"> Keep running when minimized or in another tab</label>
+      <p class="note phone-only ok">With the phone voice, Termux does the reading, so you can minimize or even close Chrome. Keep Termux running.</p>
+      <label class="c"><input type="checkbox" data-setting="keepAlive"> Keep running when minimized or in another tab (browser voice)</label>
       <p class="note">Plays an inaudible 25&nbsp;Hz tone so the browser treats this tab as "playing audio" and never pauses, freezes or unloads it. You'll see a speaker icon on the tab — that's normal.</p>
       <label class="c"><input type="checkbox" data-setting="keepScreenOn"> Keep screen on (phones/tablets)</label>
     </div>
@@ -245,6 +276,7 @@
     </ul>
   </footer>
 
+  <script src="brain.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

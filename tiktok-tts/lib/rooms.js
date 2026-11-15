@@ -1,8 +1,18 @@
 // One Room per TikTok username. A Room keeps a single connection to that LIVE
 // and fans its events out to every open browser tab watching it. It never gives
 // up: if you're not live yet, the LIVE ends, or TikTok drops the connection, it
-// keeps retrying until the last browser tab leaves.
+// keeps retrying.
+//
+// Two modes:
+//  - 'browser': the page decides what to say and speaks it. The room closes a
+//    minute after the last tab leaves.
+//  - 'server' (phone mode): the server decides and speaks through the phone's
+//    voice (Termux). The room keeps running with no tab open at all, until
+//    someone presses Stop, so minimizing or closing Chrome doesn't matter.
 import { classifyError as defaultClassify } from './tiktok-source.js';
+import '../public/brain.js';
+
+const B = globalThis.TTSBrain;
 
 export const DEFAULT_TIMING = {
   offlineRetryMs: 30_000, // not live yet / LIVE ended: check again this often
@@ -25,8 +35,10 @@ function withTimeout(promise, ms) {
 }
 
 export class Room {
-  constructor(username, { createSource, classifyError = defaultClassify, log = console, timing = {} }) {
+  constructor(username, { createSource, classifyError = defaultClassify, log = console, timing = {}, manager = null }) {
     this.username = username;
+    this.manager = manager;
+    this.mode = 'browser';
     this.timing = { ...DEFAULT_TIMING, ...timing };
     this.createSource = createSource;
     this.classifyError = classifyError;
@@ -40,7 +52,12 @@ export class Room {
     this.failures = 0;
     this.timer = null;
     this.seen = new Set();
-    this.status = { type: 'status', username, state: 'connecting', message: `Connecting to @${username}…`, viewers: null };
+    this.status = { type: 'status', username, mode: 'browser', state: 'connecting', message: `Connecting to @${username}…`, viewers: null };
+  }
+
+  setMode(mode) {
+    this.mode = mode;
+    this.status = { ...this.status, mode };
   }
 
   add(client) {
@@ -170,25 +187,66 @@ export class Room {
       this.seen.add(key);
       if (this.seen.size > SEEN_LIMIT) this.seen.delete(this.seen.values().next().value);
     }
+    if (this.mode === 'server' && this.manager) {
+      this.manager.serverEvent(this, ev);
+      return;
+    }
     this.broadcast({ ...ev, ts: Date.now() });
   }
 }
 
 export class RoomManager {
-  constructor({ createSource, classifyError, log = console, graceMs = 60_000, timing }) {
-    this.opts = { createSource, classifyError, log, timing };
+  constructor({
+    createSource,
+    classifyError,
+    log = console,
+    graceMs = 60_000,
+    timing,
+    speaker = null, // CommandSpeaker when the phone voice is available
+    settings = {},
+    onSettings = () => {},
+    broadcastAll = () => {},
+  }) {
+    this.opts = { createSource, classifyError, log, timing, manager: this };
     this.graceMs = graceMs;
     this.rooms = new Map();
     this.clientRoom = new Map();
     this.stopTimers = new Map();
+    this.settings = B.withDefaults(settings, settings.lang || 'en');
+    this.onSettings = onSettings;
+    this.broadcastAll = broadcastAll;
+    this.mem = B.createMemory();
+    this.fid = 0;
+    this.speaker = null;
+    if (speaker) this.setSpeaker(speaker);
   }
 
-  join(client, username) {
-    if (this.clientRoom.get(client)?.username === username) {
-      send(client, this.clientRoom.get(client).status);
+  setSpeaker(speaker) {
+    this.speaker = speaker;
+    speaker.on('tag', (fid, state, reason) => this.broadcastAll({ type: 'tag', fid, state, reason: reason || null }));
+    speaker.on('state', (st) => this.broadcastAll(st));
+  }
+
+  join(client, username, mode = 'browser') {
+    const current = this.clientRoom.get(client);
+    if (current?.username === username) {
+      this.setRoomMode(current, mode);
+      send(client, current.status);
       return;
     }
     this.leave(client);
+    const room = this.getOrCreate(username);
+    this.setRoomMode(room, mode);
+    room.add(client);
+    this.clientRoom.set(client, room);
+  }
+
+  // Phone mode without any browser, e.g. `tts @name` in Termux.
+  startPinned(username) {
+    this.setRoomMode(this.getOrCreate(username), 'server');
+  }
+
+  getOrCreate(username) {
     let room = this.rooms.get(username);
     if (!room) {
       room = new Room(username, this.opts);
@@ -197,8 +255,76 @@ export class RoomManager {
     }
     clearTimeout(this.stopTimers.get(username));
     this.stopTimers.delete(username);
-    room.add(client);
-    this.clientRoom.set(client, room);
+    return room;
+  }
+
+  setRoomMode(room, mode) {
+    if (mode === 'server' && !this.speaker) mode = 'browser';
+    if (mode === 'server') {
+      // Only one LIVE is read out loud on the phone at a time.
+      for (const r of [...this.rooms.values()]) if (r !== room && r.mode === 'server') this.stopRoom(r.username);
+    }
+    if (room.mode !== mode) {
+      room.setMode(mode);
+      room.broadcast(room.status);
+    }
+  }
+
+  stopRoom(username) {
+    const room = this.rooms.get(username);
+    if (!room) return;
+    clearTimeout(this.stopTimers.get(username));
+    this.stopTimers.delete(username);
+    this.rooms.delete(username);
+    for (const c of room.clients) this.clientRoom.delete(c);
+    room.clients.clear();
+    if (room.mode === 'server') this.speaker?.reset();
+    room.stop();
+    this.opts.log.info?.(`[@${username}] stopped`);
+  }
+
+  stopClientRoom(client) {
+    const room = this.clientRoom.get(client);
+    if (room) this.stopRoom(room.username);
+  }
+
+  activeRooms() {
+    return [...this.rooms.values()].filter((r) => r.mode === 'server').map((r) => ({ username: r.username, mode: r.mode }));
+  }
+
+  updateSettings(partial) {
+    this.settings = { ...this.settings, ...B.sanitize(partial) };
+    this.onSettings(this.settings);
+  }
+
+  // Phone mode: decide here, show the result in every open tab, speak it on the phone.
+  serverEvent(room, ev) {
+    const d = B.decide(ev, this.settings, this.mem);
+    if (!d) return;
+    const fid = ++this.fid;
+    room.broadcast({
+      ...ev,
+      ts: Date.now(),
+      fid,
+      feed: { kind: d.kind, who: d.who, what: d.what },
+      tag: d.speak ? { state: 'queued' } : { state: 'skipped', reason: d.reason },
+    });
+    if (d.speak) this.speaker.enqueue({ fid, text: d.speak, kind: d.kind });
+  }
+
+  control(action, text) {
+    const sp = this.speaker;
+    if (!sp) return;
+    if (action === 'pause') sp.setPaused(true);
+    else if (action === 'resume') sp.setPaused(false);
+    else if (action === 'skip') sp.skip();
+    else if (action === 'clear') sp.clear();
+    else if (action === 'test') {
+      const raw = String(text || '').slice(0, 300);
+      const fid = ++this.fid;
+      this.broadcastAll({ type: 'test', fid, feed: { kind: 'chat', who: 'Test', what: raw }, tag: { state: 'queued' } });
+      sp.enqueue({ fid, text: B.cleanText(raw, this.settings) || 'Hello', kind: 'test' }, { force: true });
+    }
   }
 
   leave(client) {
@@ -206,14 +332,14 @@ export class RoomManager {
     if (!room) return;
     this.clientRoom.delete(client);
     room.remove(client);
-    if (room.clients.size > 0) return;
+    if (room.clients.size > 0 || room.mode === 'server') return;
     // Keep the TikTok connection for a bit so a page reload doesn't drop it.
     clearTimeout(this.stopTimers.get(room.username));
     this.stopTimers.set(
       room.username,
       setTimeout(() => {
         this.stopTimers.delete(room.username);
-        if (room.clients.size > 0) return;
+        if (room.clients.size > 0 || room.mode === 'server' || this.rooms.get(room.username) !== room) return;
         this.rooms.delete(room.username);
         room.stop();
         this.opts.log.info?.(`[@${room.username}] no tabs open, disconnected`);
@@ -223,6 +349,7 @@ export class RoomManager {
 
   async closeAll() {
     for (const t of this.stopTimers.values()) clearTimeout(t);
+    this.speaker?.reset();
     await Promise.all([...this.rooms.values()].map((r) => r.stop()));
     this.rooms.clear();
   }

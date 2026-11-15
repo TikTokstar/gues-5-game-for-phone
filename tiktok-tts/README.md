@@ -12,30 +12,38 @@ Reads your TikTok LIVE chat out loud in your browser. Type your **@username**, p
 
 ## On an Android phone (no computer needed)
 
-Everything runs on the phone. **Termux** runs the small server, and **Chrome** reads the chat.
+Everything runs on the phone. **Termux** runs the small server and reads the chat with the **phone's own voice** through the Termux:API app. Chrome is only the control panel, so you can minimize or even close it and go LIVE. On Android, Chrome's own voice stops when Chrome is minimized, which is why the reading happens in Termux.
 
 **One-time setup**
 
-1. Install **Termux** from F-Droid (<https://f-droid.org/packages/com.termux/>) or from GitHub (<https://github.com/termux/termux-app/releases>, the `arm64-v8a` .apk). Don't use the old Play Store version.
+1. Install **Termux**, and also the **Termux:API** app, both from the same store: F-Droid (<https://f-droid.org/packages/com.termux/> and <https://f-droid.org/packages/com.termux.api/>) or GitHub releases. Don't mix stores, because the two apps must come from the same place.
 2. Open Termux, paste this line and press Enter. It takes about 5 minutes.
 
    ```bash
    curl -fsSL https://raw.githubusercontent.com/TikTokstar/gues-5-game-for-phone/ccr-3bcb2e4d-py3d2b/tiktok-tts/termux-setup.sh | bash
    ```
 
+   If you set it up before, just type `tts update` instead.
 3. **Xiaomi / Poco / Redmi (HyperOS/MIUI):** these phones close background apps aggressively, so:
-   - Go to *Settings → Apps → Manage apps → **Termux** → Battery saver →* **No restrictions**. Do the same for **Chrome**.
-   - Open the recent-apps screen, long-press the **Termux** card and tap the 🔒 lock. Do the same for **Chrome**.
+   - Go to *Settings → Apps → Manage apps → **Termux** → Battery saver →* **No restrictions**. Do the same for **Termux:API**.
+   - For **Termux:API**, also turn on **Autostart**. Without it the phone blocks the voice.
+   - Open the recent-apps screen, long-press the **Termux** card and tap the 🔒 lock.
 
 **Every stream**
 
 1. Open Termux, type `tts` and press Enter. Chrome opens by itself.
-2. Type your @ and press **Start**.
-3. Switch to the TikTok app and go LIVE. Termux and Chrome keep running in the background. Don't swipe them away.
+2. Check that the *Voice* section says "✓ Phone voice ready". Type your @ and press **Start**.
+3. Switch to the TikTok app and go LIVE. Don't swipe Termux away.
 
-Type `tts demo` to test with fake chat first. Type `tts update` to get the newest version.
+Shortcut: `tts @yourname` starts reading right away, with no browser at all.
 
-Before your first real stream, do a test: run `tts demo`, press Start, switch to TikTok and check that it keeps talking. Also check whether viewers hear it (a test LIVE or ask a friend). TikTok's echo cancellation can filter out sound that comes from the phone's own speaker.
+Other commands: `tts demo` (fake chat for testing) and `tts update` (newest version).
+
+Speed, pitch, the language of the phone voice and all the filters are set on the page. They're remembered, `tts @yourname` included. The volume is your phone's media volume.
+
+If the page says "Phone voice not available", it tells you why. Usually the Termux:API app is missing, or Autostart is off for it.
+
+Check whether viewers hear it (a test LIVE or ask a friend). TikTok's echo cancellation can filter out sound that comes from the phone's own speaker.
 
 ## Start it on a computer
 
@@ -122,6 +130,8 @@ tiktok-tts/
   lib/tiktok-source.js  TikTok → simple chat/gift/follow events
   lib/demo-source.js    fake chat for `npm run demo`
   public/index.html     the page
-  public/app.js         speech queue, filters, keep-alive, auto-reconnect
+  lib/speaker.js        phone voice (termux-tts-speak), one message at a time
+  public/brain.js       filters + wording, shared by the page and the server
+  public/app.js         page: browser voice queue, keep-alive, auto-reconnect
   test/                 `npm test`
 ```
